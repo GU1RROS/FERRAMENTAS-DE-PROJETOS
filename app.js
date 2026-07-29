@@ -370,7 +370,7 @@ erInput.addEventListener('change', e => {
 });
 
 function addERFiles(files) {
-  const validFiles = files.filter(f => /\.(xlsx|xls|ods)$/i.test(f.name));
+  const validFiles = files.filter(f => /\.(xlsm|xlsx|xls|ods)$/i.test(f.name));
   if (validFiles.length === 0) { showToast('❌ Nenhum arquivo Excel válido selecionado.', 'error'); return; }
   erFiles = [...erFiles, ...validFiles];
   updateERFilesBar();
@@ -508,7 +508,7 @@ pdfInput.addEventListener('change', e => {
 });
 
 async function addPDFFiles(files) {
-  const validFiles = files.filter(f => /\.(xlsx|xls|ods)$/i.test(f.name));
+  const validFiles = files.filter(f => /\.(xlsm|xlsx|xls|ods)$/i.test(f.name));
   if (validFiles.length === 0) { showToast('❌ Nenhum arquivo Excel válido selecionado.', 'error'); return; }
 
   for (const file of validFiles) {
@@ -699,7 +699,7 @@ async function generatePDF(wb, sheetName, originalFilename) {
   });
 
   // Save file
-  const pdfName = originalFilename.replace(/\.(xlsx|xls|ods)$/i, '') + `_${foundSheet}.pdf`;
+  const pdfName = originalFilename.replace(/\.(xlsm|xlsx|xls|ods)$/i, '') + `_${foundSheet}.pdf`;
   doc.save(pdfName);
 }
 
