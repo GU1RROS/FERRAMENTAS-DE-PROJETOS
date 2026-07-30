@@ -489,7 +489,9 @@ document.getElementById('er-copy-btn').addEventListener('click', () => {
 
 const pdfDrop  = document.getElementById('pdf-drop');
 const pdfInput = document.getElementById('pdf-input');
-let pdfFiles = []; // { file, sheetNames }
+let pdfFiles = []; // Armazena { file, sheetNames, selectedSheets }
+
+const CONVERT_API_SECRET = 'zsCLCdS0zAy5ydOzVRWudQ2AZg9w0oLz';
 
 pdfDrop.addEventListener('click', () => pdfInput.click());
 pdfDrop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') pdfInput.click(); });
@@ -514,10 +516,16 @@ async function addPDFFiles(files) {
   for (const file of validFiles) {
     try {
       const buffer = await file.arrayBuffer();
-      const wb = XLSX.read(buffer, { type: 'array' });
-      pdfFiles.push({ file, wb, selectedSheet: wb.SheetNames[0] });
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(buffer);
+      
+      const sheetNames = [];
+      wb.eachSheet((worksheet) => { sheetNames.push(worksheet.name); });
+      
+      pdfFiles.push({ file, sheetNames, selectedSheets: [sheetNames[0]] });
     } catch (err) {
-      showToast(`❌ Erro ao ler ${file.name}`, 'error');
+      console.error(err);
+      showToast(`❌ Erro ao ler abas de ${file.name}`, 'error');
     }
   }
   renderPDFFileList();
@@ -531,46 +539,46 @@ function renderPDFFileList() {
     const row = document.createElement('div');
     row.className = 'pdf-file-row';
 
-    // Build sheet select dropdown
-    const selectHTML = entry.wb.SheetNames.length > 1
-      ? `<select class="pdf-sheet-select" data-idx="${idx}" title="Selecionar aba">
-          ${entry.wb.SheetNames.map(n => `<option value="${n}" ${n === entry.selectedSheet ? 'selected' : ''}>${n}</option>`).join('')}
-         </select>`
-      : `<input type="text" class="pdf-sheet-input" data-idx="${idx}" value="${entry.selectedSheet}" placeholder="Nome da planilha" />`;
+    const sheetsHTML = entry.sheetNames.map(n => `
+      <label style="margin-right: 12px; font-size: 13px; display: inline-flex; align-items: center; cursor: pointer;">
+        <input type="checkbox" class="pdf-sheet-cb" data-idx="${idx}" value="${n}" 
+          ${entry.selectedSheets.includes(n) ? 'checked' : ''} style="margin-right: 4px;">
+        ${n}
+      </label>
+    `).join('');
 
     row.innerHTML = `
       <div class="pdf-file-icon">📊</div>
-      <span class="pdf-file-name" title="${entry.file.name}">${entry.file.name}</span>
-      ${selectHTML}
+      <div style="display: flex; flex-direction: column; flex-grow: 1; overflow: hidden;">
+        <span class="pdf-file-name" title="${entry.file.name}" style="font-weight: bold; margin-bottom: 5px;">${entry.file.name}</span>
+        <div class="pdf-sheets-list" style="display: flex; flex-wrap: wrap;">${sheetsHTML}</div>
+      </div>
       <button class="pdf-remove-btn" data-idx="${idx}" title="Remover">✕</button>
     `;
     container.appendChild(row);
   });
 
-  // Bind events
-  container.querySelectorAll('.pdf-sheet-select').forEach(sel => {
-    sel.addEventListener('change', e => {
-      pdfFiles[+e.target.dataset.idx].selectedSheet = e.target.value;
-    });
-  });
-  container.querySelectorAll('.pdf-sheet-input').forEach(inp => {
-    inp.addEventListener('input', e => {
-      pdfFiles[+e.target.dataset.idx].selectedSheet = e.target.value;
-    });
-  });
-  container.querySelectorAll('.pdf-remove-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      pdfFiles.splice(+e.target.dataset.idx, 1);
-      renderPDFFileList();
-      if (pdfFiles.length === 0) {
-        document.getElementById('pdf-files-list').classList.add('hidden');
+  container.querySelectorAll('.pdf-sheet-cb').forEach(cb => {
+    cb.addEventListener('change', e => {
+      const idx = +e.target.dataset.idx;
+      const val = e.target.value;
+      if (e.target.checked) {
+        if (!pdfFiles[idx].selectedSheets.includes(val)) pdfFiles[idx].selectedSheets.push(val);
+      } else {
+        pdfFiles[idx].selectedSheets = pdfFiles[idx].selectedSheets.filter(s => s !== val);
       }
     });
   });
 
-  if (pdfFiles.length > 0) {
-    document.getElementById('pdf-files-list').classList.remove('hidden');
-  }
+  container.querySelectorAll('.pdf-remove-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      pdfFiles.splice(+e.target.dataset.idx, 1);
+      renderPDFFileList();
+      if (pdfFiles.length === 0) document.getElementById('pdf-files-list').classList.add('hidden');
+    });
+  });
+
+  if (pdfFiles.length > 0) document.getElementById('pdf-files-list').classList.remove('hidden');
 }
 
 document.getElementById('pdf-clear-all').addEventListener('click', () => {
@@ -583,6 +591,7 @@ document.getElementById('pdf-export-btn').addEventListener('click', exportAllToP
 
 async function exportAllToPDF() {
   if (pdfFiles.length === 0) { showToast('⚠️ Nenhum arquivo carregado.', 'error'); return; }
+  if (CONVERT_API_SECRET === 'SEU_TOKEN_AQUI') { showToast('⚠️ Configure o token da API no código!', 'error'); return; }
 
   const progressDiv  = document.getElementById('pdf-progress');
   const progressBar  = document.getElementById('pdf-bar');
@@ -593,114 +602,112 @@ async function exportAllToPDF() {
   exportBtn.disabled = true;
 
   for (let i = 0; i < pdfFiles.length; i++) {
-    const { file, wb, selectedSheet } = pdfFiles[i];
-    const pct = Math.round(((i) / pdfFiles.length) * 100);
-    progressBar.style.width = pct + '%';
-    progressText.textContent = `Processando ${i + 1}/${pdfFiles.length}: ${file.name}`;
+    const entry = pdfFiles[i];
+    progressBar.style.width = Math.round(((i) / pdfFiles.length) * 100) + '%';
+    progressText.textContent = `Convertendo ${i + 1}/${pdfFiles.length}: ${entry.file.name}... (Isso pode levar alguns segundos)`;
 
     try {
-      await generatePDF(wb, selectedSheet, file.name);
+      await processAndDownloadPDF(entry);
     } catch (err) {
-      showToast(`❌ Erro em ${file.name}: ${err.message}`, 'error');
+      console.error(err);
+      showToast(`❌ Erro em ${entry.file.name}: ${err.message}`, 'error');
     }
-    // Small delay to let browser breathe
-    await new Promise(r => setTimeout(r, 80));
   }
 
   progressBar.style.width = '100%';
-  progressText.textContent = `✓ ${pdfFiles.length} PDF(s) gerado(s) com sucesso!`;
+  progressText.textContent = `✓ ${pdfFiles.length} PDF(s) exportado(s) com sucesso!`;
   exportBtn.disabled = false;
-  showToast(`✓ ${pdfFiles.length} PDF(s) exportado(s)!`, 'success');
-
   setTimeout(() => progressDiv.classList.add('hidden'), 4000);
 }
 
-async function generatePDF(wb, sheetName, originalFilename) {
-  const { jsPDF } = window.jspdf;
+// Função que chama a API e junta as abas
+async function processAndDownloadPDF(entry) {
+  if (entry.selectedSheets.length === 0) throw new Error("Nenhuma aba selecionada");
 
-  // Find sheet (case-insensitive fallback)
-  const foundSheet = wb.SheetNames.find(n => n.toLowerCase() === sheetName.toLowerCase()) || wb.SheetNames[0];
-  const ws = wb.Sheets[foundSheet];
+  const pdfsBase64 = [];
+  
+  // Pega a extensão original
+  const extensaoOriginal = entry.file.name.split('.').pop().toLowerCase();
+  
+  // TRUQUE: Se for .xlsm ou .xlsb, forçamos a API a processar no motor de .xlsx
+  // Isso burla o bloqueio de parâmetros da API mantendo o arquivo intacto.
+  const isMacro = (extensaoOriginal === 'xlsm' || extensaoOriginal === 'xlsb');
+  const endpointFormat = isMacro ? 'xlsx' : extensaoOriginal;
 
-  if (!ws) throw new Error(`Aba "${sheetName}" não encontrada`);
-
-  // Convert sheet to array of arrays
-  const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-
-  if (data.length === 0) throw new Error('Planilha vazia');
-
-  // Determine max columns
-  const maxCols = Math.max(...data.map(r => r.length));
-
-  // Calculate column widths based on content
-  const colWidths = Array.from({ length: maxCols }, (_, ci) => {
-    const maxLen = Math.max(
-      String(ci + 1).length,
-      ...data.map(row => String(row[ci] ?? '').length)
-    );
-    return Math.min(Math.max(maxLen * 5, 20), 80);
-  });
-
-  // Create PDF
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-
-  // Header
-  const pageW = doc.internal.pageSize.getWidth();
-  doc.setFillColor(7, 8, 16);
-  doc.rect(0, 0, pageW, 20, 'F');
-  doc.setTextColor(0, 245, 255);
-  doc.setFontSize(12);
-  doc.setFont('helvetica', 'bold');
-  doc.text(`${foundSheet}  —  ${originalFilename}`, 10, 13);
-  doc.setTextColor(90, 100, 140);
-  doc.setFontSize(7);
-  doc.text(`Exportado em ${new Date().toLocaleString('pt-BR')}  ·  Guirros Ferramentas`, pageW - 10, 13, { align: 'right' });
-
-  // Prepare table data
-  const headers = data[0] ? data[0].map(String) : [];
-  const rows = data.slice(1).map(row =>
-    Array.from({ length: Math.max(headers.length, row.length) }, (_, i) =>
-      row[i] !== undefined && row[i] !== null ? String(row[i]) : ''
-    )
-  );
-
-  doc.autoTable({
-    head: headers.length ? [headers] : undefined,
-    body: rows,
-    startY: 24,
-    styles: {
-      fontSize: 7,
-      cellPadding: 2,
-      fillColor: [13, 15, 30],
-      textColor: [200, 210, 230],
-      lineColor: [30, 35, 70],
-      lineWidth: 0.2,
-    },
-    headStyles: {
-      fillColor: [0, 80, 120],
-      textColor: [0, 245, 255],
-      fontStyle: 'bold',
-      fontSize: 7.5,
-    },
-    alternateRowStyles: {
-      fillColor: [17, 20, 40],
-    },
-    columnStyles: Object.fromEntries(
-      Array.from({ length: maxCols }, (_, i) => [i, { cellWidth: colWidths[i] }])
-    ),
-    margin: { top: 24, right: 8, bottom: 10, left: 8 },
-    didDrawPage: (data) => {
-      const pg = doc.internal.getCurrentPageInfo().pageNumber;
-      const total = doc.internal.getNumberOfPages();
-      doc.setFontSize(6);
-      doc.setTextColor(60, 70, 100);
-      doc.text(`Página ${pg} de ${total}`, pageW / 2, doc.internal.pageSize.getHeight() - 4, { align: 'center' });
+  // Passo 1: Converte cada aba individualmente através da API
+  for (const sheetName of entry.selectedSheets) {
+    const formData = new FormData();
+    
+    // Se for arquivo com macro, enviamos o arquivo renomeado temporariamente para .xlsx
+    if (isMacro) {
+      const nomeMascarado = entry.file.name.replace(new RegExp(`\\.${extensaoOriginal}$`, 'i'), '.xlsx');
+      formData.append('File', entry.file, nomeMascarado);
+    } else {
+      formData.append('File', entry.file);
     }
-  });
+    
+    // Pede para a API exportar exatamente esta aba
+    formData.append('WorksheetName', sheetName); 
 
-  // Save file
-  const pdfName = originalFilename.replace(/\.(xlsm|xlsx|xls|ods)$/i, '') + `_${foundSheet}.pdf`;
-  doc.save(pdfName);
+    const response = await fetch(`https://v2.convertapi.com/convert/${endpointFormat}/to/pdf?Secret=${CONVERT_API_SECRET}`, {
+      method: 'POST',
+      body: formData
+    });
+
+    const result = await response.json();
+    
+    // NOVO: Tratamento de Erro Detalhado!
+    if (result.Code && result.Code !== 200) {
+      let detalhes = "";
+      // Se a API listar os parâmetros inválidos, nós extraímos para o erro
+      if (result.InvalidParameters) {
+        detalhes = " ➡️ " + Object.keys(result.InvalidParameters)
+          .map(k => `${k}: ${result.InvalidParameters[k].join(', ')}`)
+          .join(' | ');
+      }
+      throw new Error(`Erro na API: ${result.Message}${detalhes}`);
+    }
+    
+    if (result.Files && result.Files.length > 0) {
+      // Guarda o arquivo PDF codificado em Base64
+      pdfsBase64.push(result.Files[0].FileData);
+    } else {
+      throw new Error("Falha desconhecida na conversão da API");
+    }
+  }
+
+  // Passo 2: Se tem mais de uma aba, usa o pdf-lib para juntar todas em um arquivo só
+  const { PDFDocument } = PDFLib;
+  const finalPdf = await PDFDocument.create();
+
+  for (const b64 of pdfsBase64) {
+    // Transforma Base64 de volta em arquivo
+    const pdfBytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const srcDoc = await PDFDocument.load(pdfBytes);
+    
+    // Copia todas as páginas deste PDF e cola no PDF final
+    const copiedPages = await finalPdf.copyPages(srcDoc, srcDoc.getPageIndices());
+    copiedPages.forEach(page => finalPdf.addPage(page));
+  }
+
+  // Passo 3: Faz o download para o usuário
+  const pdfBytesFinal = await finalPdf.save();
+  const blob = new Blob([pdfBytesFinal], { type: 'application/pdf' });
+  const url = window.URL.createObjectURL(blob);
+  
+  const link = document.createElement('a');
+  link.href = url;
+  const pdfName = entry.file.name.replace(/\.(xlsm|xlsx|xls|ods)$/i, '') + `.pdf`;
+  link.download = pdfName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+
+function showToast(msg, type) {
+  // Ajuste de acordo com o seu sistema de notificações
+  alert(msg);
 }
 
 // ══════════════════════════════════════════════════════════════
