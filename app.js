@@ -1796,7 +1796,7 @@ function openFeatureEditModal(feat, layer) {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  TOOL 5 — SISTEMA DE TOPOLOGIAS (Redirecionamento Externo)
+//  TOOL 6 — SISTEMA DE TOPOLOGIAS (Redirecionamento Externo)
 // ══════════════════════════════════════════════════════════════
 
 function initTopologiasTool() {
@@ -1831,4 +1831,339 @@ function initTopologiasTool() {
   });
 }
 
+// ══════════════════════════════════════════════════════════════
+//  TOOL 5 — MASSIVAS (Gerador Automático de KMZ de Pontos)
+// ══════════════════════════════════════════════════════════════
+
+let massivasParsedPoints = [];
+
+function initMassivasTool() {
+  const dropZone = document.getElementById('massivas-drop');
+  const fileInput = document.getElementById('massivas-input');
+  const filenameDisplay = document.getElementById('massivas-filename-display');
+  const textarea = document.getElementById('massivas-textarea');
+  const prefixInput = document.getElementById('massivas-prefix');
+  const repeatInput = document.getElementById('massivas-repeat');
+  const filenameInput = document.getElementById('massivas-filename');
+  const summaryDiv = document.getElementById('massivas-summary');
+  const generateBtn = document.getElementById('massivas-generate');
+  const resultDiv = document.getElementById('massivas-result');
+  const resultInfo = document.getElementById('massivas-result-info');
+  const downloadBtn = document.getElementById('massivas-download');
+
+  const kmlCodeArea = document.getElementById('massivas-kml-code');
+  const updateKmlBtn = document.getElementById('massivas-update-kml');
+
+  if (!dropZone || !generateBtn) return;
+  if (dropZone.dataset.initialized === 'true') return;
+  dropZone.dataset.initialized = 'true';
+
+  // Drag & drop handlers
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleMassivasFile(e.dataTransfer.files[0]);
+    }
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) {
+      handleMassivasFile(e.target.files[0]);
+    }
+  });
+
+  textarea.addEventListener('input', () => {
+    if (textarea.value.trim().length > 0) {
+      parseMassivasTextarea();
+    } else {
+      updateMassivasSummary();
+    }
+  });
+
+  generateBtn.addEventListener('click', generateMassivasKmz);
+
+  if (updateKmlBtn && kmlCodeArea) {
+    updateKmlBtn.addEventListener('click', () => {
+      const code = kmlCodeArea.value.trim();
+      if (!code) {
+        showToast('⚠️ O código KML está vazio.', 'warning');
+        return;
+      }
+      let outFilename = (filenameInput.value.trim() || 'massivas.kmz');
+      if (!outFilename.toLowerCase().endsWith('.kmz')) {
+        outFilename += '.kmz';
+      }
+      zipAndSetKmzDownload(code, outFilename, 'KMZ recriado a partir do código KML editado.');
+    });
+  }
+
+  function handleMassivasFile(file) {
+    if (filenameDisplay) {
+      filenameDisplay.textContent = `📁 ${file.name}`;
+    }
+    showToast(`📄 Lendo arquivo ${file.name}...`, 'info');
+
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (ext === 'xlsx' || ext === 'xls') {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const sheet = workbook.Sheets[firstSheetName];
+          const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+          extractPointsFromRows(rows);
+        } catch (err) {
+          console.error(err);
+          showToast('❌ Erro ao ler planilha Excel: ' + err.message, 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else if (ext === 'csv' || ext === 'txt') {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = e.target.result;
+        textarea.value = text;
+        parseMassivasTextarea();
+      };
+      reader.readAsText(file);
+    } else {
+      showToast('⚠️ Formato não suportado. Use .xlsx, .xls ou .csv', 'warning');
+    }
+  }
+
+  function extractPointsFromRows(rows) {
+    massivasParsedPoints = [];
+    if (!rows || rows.length === 0) {
+      updateMassivasSummary();
+      return;
+    }
+
+    let latIdx = -1;
+    let lngIdx = -1;
+    let nameIdx = -1;
+
+    for (let r = 0; r < Math.min(5, rows.length); r++) {
+      const row = rows[r];
+      if (!Array.isArray(row)) continue;
+      for (let c = 0; c < row.length; c++) {
+        const val = String(row[c] || '').toLowerCase().trim();
+        if (val.includes('lat')) latIdx = c;
+        else if (val.includes('lon') || val.includes('lng') || val.includes('long')) lngIdx = c;
+        else if (val.includes('nome') || val.includes('name') || val.includes('ponto')) nameIdx = c;
+      }
+      if (latIdx !== -1 && lngIdx !== -1) break;
+    }
+
+    const startRow = (latIdx !== -1 && lngIdx !== -1) ? 1 : 0;
+
+    for (let r = startRow; r < rows.length; r++) {
+      const row = rows[r];
+      if (!Array.isArray(row) || row.length < 2) continue;
+
+      let lat = NaN, lng = NaN;
+      if (latIdx !== -1 && lngIdx !== -1) {
+        lat = parseCoordNumber(row[latIdx]);
+        lng = parseCoordNumber(row[lngIdx]);
+      } else {
+        const nums = [];
+        for (let c = 0; c < row.length; c++) {
+          const num = parseCoordNumber(row[c]);
+          if (!isNaN(num)) nums.push(num);
+        }
+        if (nums.length >= 2) {
+          if (Math.abs(nums[0]) <= 90 && Math.abs(nums[1]) <= 180) {
+            lat = nums[0];
+            lng = nums[1];
+          } else if (Math.abs(nums[1]) <= 90 && Math.abs(nums[0]) <= 180) {
+            lat = nums[1];
+            lng = nums[0];
+          }
+        }
+      }
+
+      if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        const customName = (nameIdx !== -1 && row[nameIdx]) ? String(row[nameIdx]).trim() : null;
+        massivasParsedPoints.push({ lat, lng, customName });
+      }
+    }
+
+    updateMassivasSummary();
+  }
+
+  function parseMassivasTextarea() {
+    massivasParsedPoints = [];
+    const lines = textarea.value.split('\n');
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+
+      const matches = trimmed.match(/-?\d+(?:[.,]\d+)?/g);
+      if (matches && matches.length >= 2) {
+        const num1 = parseFloat(matches[0].replace(',', '.'));
+        const num2 = parseFloat(matches[1].replace(',', '.'));
+        if (!isNaN(num1) && !isNaN(num2)) {
+          let lat = num1, lng = num2;
+          if (Math.abs(lat) > 90 && Math.abs(lng) <= 90) {
+            lat = num2;
+            lng = num1;
+          }
+          if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+            massivasParsedPoints.push({ lat, lng });
+          }
+        }
+      }
+    });
+    updateMassivasSummary();
+  }
+
+  function parseCoordNumber(val) {
+    if (val === null || val === undefined) return NaN;
+    if (typeof val === 'number') return val;
+    const str = String(val).trim().replace(',', '.');
+    return parseFloat(str);
+  }
+
+  function updateMassivasSummary() {
+    const count = massivasParsedPoints.length;
+    if (count > 0) {
+      summaryDiv.textContent = `📍 ${count} coordenada(s) reconhecida(s) com sucesso.`;
+      generateBtn.disabled = false;
+    } else {
+      summaryDiv.textContent = '⚠️ Nenhuma coordenada válida identificada ainda. Envie uma planilha ou cole as coordenadas.';
+    }
+  }
+
+  async function generateMassivasKmz() {
+    if (massivasParsedPoints.length === 0) {
+      parseMassivasTextarea();
+    }
+
+    if (massivasParsedPoints.length === 0) {
+      showToast('⚠️ Nenhuma coordenada válida para gerar o KMZ.', 'warning');
+      return;
+    }
+
+    const basePrefix = (prefixInput.value.trim() || 'PONTO').toUpperCase();
+    const repeatCount = Math.max(1, parseInt(repeatInput.value, 10) || 1);
+    let outFilename = (filenameInput.value.trim() || 'massivas.kmz');
+    if (!outFilename.toLowerCase().endsWith('.kmz')) {
+      outFilename += '.kmz';
+    }
+
+    showToast(`⏳ Gerando KMZ com ${massivasParsedPoints.length} ponto(s) e ${repeatCount} pasta(s)...`, 'info');
+
+    // Build project tree structure
+    let kmlContent = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+    kmlContent += `<kml xmlns="http://www.opengis.net/kml/2.2">\n`;
+    kmlContent += `  <Document>\n`;
+    kmlContent += `    <name>${escapeXml(outFilename.replace('.kmz', ''))}</name>\n`;
+
+    for (let f = 1; f <= repeatCount; f++) {
+      let indent = '    ';
+      if (repeatCount > 1) {
+        kmlContent += `    <Folder>\n`;
+        kmlContent += `      <name>REPETIÇÃO ${String(f).padStart(2, '0')}</name>\n`;
+        indent = '      ';
+      }
+
+      massivasParsedPoints.forEach((pt, idx) => {
+        const pointNumStr = String(idx + 1).padStart(2, '0');
+        const pointFolderName = `${basePrefix} - ${pointNumStr}`;
+        const latStr = pt.lat.toFixed(6);
+        const lngStr = pt.lng.toFixed(6);
+        const coordNameStr = `${latStr}, ${lngStr}`;
+
+        kmlContent += `${indent}<Folder>\n`;
+        kmlContent += `${indent}  <name>${escapeXml(pointFolderName)}</name>\n`;
+
+        // 1. LOCALIZAÇÃO Folder with single Placemark named as the exact coordinate
+        kmlContent += `${indent}  <Folder>\n`;
+        kmlContent += `${indent}    <name>LOCALIZAÇÃO</name>\n`;
+        kmlContent += `${indent}    <Placemark>\n`;
+        kmlContent += `${indent}      <name>${coordNameStr}</name>\n`;
+        kmlContent += `${indent}      <Point>\n`;
+        kmlContent += `${indent}        <coordinates>${lngStr},${latStr},0</coordinates>\n`;
+        kmlContent += `${indent}      </Point>\n`;
+        kmlContent += `${indent}    </Placemark>\n`;
+        kmlContent += `${indent}  </Folder>\n`;
+
+        // 2. REDE NOVA Folder with Subfolders
+        kmlContent += `${indent}  <Folder>\n`;
+        kmlContent += `${indent}    <name>REDE NOVA</name>\n`;
+        kmlContent += `${indent}    <Folder><name>CABOS</name></Folder>\n`;
+        kmlContent += `${indent}    <Folder><name>RESERVA</name></Folder>\n`;
+        kmlContent += `${indent}    <Folder><name>CORDOALHA</name></Folder>\n`;
+        kmlContent += `${indent}  </Folder>\n`;
+
+        // 3. REDE LEGADA Folder with Subfolders
+        kmlContent += `${indent}  <Folder>\n`;
+        kmlContent += `${indent}    <name>REDE LEGADA</name>\n`;
+        kmlContent += `${indent}    <Folder><name>CEO</name></Folder>\n`;
+        kmlContent += `${indent}    <Folder><name>CABOS</name></Folder>\n`;
+        kmlContent += `${indent}    <Folder><name>POP</name></Folder>\n`;
+        kmlContent += `${indent}  </Folder>\n`;
+
+        kmlContent += `${indent}</Folder>\n`;
+      });
+
+      if (repeatCount > 1) {
+        kmlContent += `    </Folder>\n`;
+      }
+    }
+
+    kmlContent += `  </Document>\n`;
+    kmlContent += `</kml>`;
+
+    if (kmlCodeArea) {
+      kmlCodeArea.value = kmlContent;
+    }
+
+    await zipAndSetKmzDownload(kmlContent, outFilename, `Arquivo "${outFilename}" contendo ${massivasParsedPoints.length * repeatCount} ponto(s) total em ${repeatCount} pasta(s).`);
+  }
+
+  async function zipAndSetKmzDownload(kmlText, outFilename, infoMsg) {
+    try {
+      const zip = new JSZip();
+      zip.file('doc.kml', kmlText);
+
+      const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.google-earth.kmz' });
+      const url = URL.createObjectURL(blob);
+
+      downloadBtn.href = url;
+      downloadBtn.download = outFilename;
+      if (infoMsg) {
+        resultInfo.textContent = infoMsg;
+      }
+      resultDiv.classList.remove('hidden');
+
+      showToast(`🎉 KMZ "${outFilename}" atualizado com sucesso!`, 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('❌ Erro ao criar KMZ zipado: ' + err.message, 'error');
+    }
+  }
+
+  function escapeXml(unsafe) {
+    return String(unsafe)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initMassivasTool();
+});
 
