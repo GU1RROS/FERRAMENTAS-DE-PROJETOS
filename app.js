@@ -1835,10 +1835,6 @@ function initTopologiasTool() {
   });
 }
 
-// ══════════════════════════════════════════════════════════════
-//  TOOL 5 — MASSIVAS (Gerador Automático de KMZ de Pontos)
-// ══════════════════════════════════════════════════════════════
-
 let massivasParsedPoints = [];
 
 function initMassivasTool() {
@@ -2170,4 +2166,3 @@ function initMassivasTool() {
 document.addEventListener('DOMContentLoaded', () => {
   initMassivasTool();
 });
-
