@@ -77,6 +77,10 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
       if (typeof initTopologiasTool === 'function') {
         initTopologiasTool();
       }
+    } else if (btn.dataset.tab === 'massivas') {
+      if (typeof initMassivasTool === 'function') {
+        initMassivasTool();
+      }
     }
   });
 });
