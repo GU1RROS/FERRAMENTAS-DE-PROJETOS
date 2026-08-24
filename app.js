@@ -1800,7 +1800,7 @@ function openFeatureEditModal(feat, layer) {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  TOOL 6 — SISTEMA DE TOPOLOGIAS (Redirecionamento Externo)
+//  TOOL 5 — SISTEMA DE TOPOLOGIAS (Redirecionamento Externo)
 // ══════════════════════════════════════════════════════════════
 
 function initTopologiasTool() {
@@ -1834,6 +1834,10 @@ function initTopologiasTool() {
     window.open(url, '_blank', 'noopener,noreferrer');
   });
 }
+
+// ══════════════════════════════════════════════════════════════
+//  TOOL 6 — MASSIVAS (Gerador Automático de KMZ de Pontos)
+// ══════════════════════════════════════════════════════════════
 
 let massivasParsedPoints = [];
 
@@ -2166,3 +2170,4 @@ function initMassivasTool() {
 document.addEventListener('DOMContentLoaded', () => {
   initMassivasTool();
 });
+
