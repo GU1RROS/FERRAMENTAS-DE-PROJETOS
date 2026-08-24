@@ -163,6 +163,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" /></svg>
         <span>GIS SHP Map</span>
       </button>
+      <button class="tab-btn" data-tab="massivas" id="tab-massivas">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 2v20M2 12h20M7 7h10v10H7z"/></svg>
+        <span>Massivas</span>
+      </button>
       <button class="tab-btn" data-tab="topologias" id="tab-topologias">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" /></svg>
         <span>Sistema de Topologias</span>
@@ -433,8 +437,106 @@
         </div>
       </div>
     </div>
+    
+<!-- ====== TAB 5: MASSIVAS (Gerador KMZ de Pontos) ====== -->
+    <div class="tool-panel" id="panel-massivas">
+      <div class="tool-card-header">
+        <div class="tool-icon massivas-icon" style="background: rgba(57, 255, 20, 0.1); color: var(--neon-green);">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 2v20M2 12h20M7 7h10v10H7z"/></svg>
+        </div>
+        <div>
+          <h3 class="tool-title">Massivas — Gerador Automático de KMZ</h3>
+          <p class="tool-subtitle">Recebe uma lista de coordenadas (latitude e longitude) via arquivo Excel/CSV ou coladas diretamente e gera um arquivo .KMZ estruturado para o Google Earth.</p>
+        </div>
+      </div>
 
-    <!-- ====== TAB 5: SISTEMA DE TOPOLOGIAS ====== -->
+      <div class="tool-body">
+        <!-- Input Method Tabs / Options -->
+        <div class="form-row" style="gap:16px; margin-bottom:16px;">
+          <div class="form-group" style="flex:1;">
+            <label>1. Origem dos Dados (Planilha)</label>
+            <div class="upload-zone" id="massivas-drop" tabindex="0" role="button" aria-label="Área de upload Excel">
+              <div class="upload-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+              </div>
+              <p class="upload-title" id="massivas-filename-display">Arraste a planilha (.xlsx, .csv) aqui</p>
+              <p class="upload-sub">ou clique para selecionar o arquivo</p>
+              <input type="file" id="massivas-input" accept=".xlsx,.xls,.csv" hidden />
+              <span class="upload-tag">.XLSX / .CSV</span>
+            </div>
+          </div>
+
+          <div class="form-group" style="flex:1;">
+            <label for="massivas-textarea">Ou Cole as Coordenadas Diretamente</label>
+            <textarea id="massivas-textarea" class="form-input" rows="7" style="font-family: var(--font-mono); font-size:12px; line-height:1.4;" placeholder="Cole aqui as coordenadas (uma por linha)&#10;Exemplo:&#10;-15.7942, -47.8821&#10;-15.7950, -47.8830&#10;-15.7960, -47.8840"></textarea>
+          </div>
+        </div>
+
+        <!-- Configuration Parameters -->
+        <div class="gis-toolbar" style="margin-bottom:16px; padding:16px;">
+          <div class="gis-control-group" style="flex:1; min-width:200px;">
+            <span class="gis-control-title">⚙️ Parâmetros da Geração</span>
+            <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center; margin-top:8px;">
+              <div>
+                <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px;">Nome Base do Ponto</label>
+                <input type="text" id="massivas-prefix" class="form-input" value="PONTO" style="width:140px; padding:6px 10px;" placeholder="Ex: PONTO" />
+              </div>
+              <div>
+                <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px;">Repetir em Quantas Pastas?</label>
+                <input type="number" id="massivas-repeat" class="form-input" min="1" max="100" value="1" style="width:100px; padding:6px 10px;" />
+              </div>
+              <div>
+                <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px;">Nome do Arquivo KMZ</label>
+                <input type="text" id="massivas-filename" class="form-input" value="massivas.kmz" style="width:160px; padding:6px 10px;" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action & Preview -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px;">
+          <div id="massivas-summary" style="font-size:13px; color:var(--neon-green); font-weight:500;">
+            <!-- Dynamic summary text -->
+          </div>
+          <button class="run-btn" id="massivas-generate" style="width:auto; padding:10px 28px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;margin-right:6px;"><path d="M12 4v12m0-12l-4 4m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+            Gerar Arquivo KMZ
+          </button>
+        </div>
+
+        <div class="massivas-result hidden" id="massivas-result" style="margin-top:16px; padding:16px; background:rgba(0,245,255,0.05); border:1px solid rgba(0,245,255,0.2); border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <h4 style="margin:0; color:var(--neon-blue); font-size:15px;">✅ KMZ Gerado com Sucesso!</h4>
+            <p id="massivas-result-info" style="margin:4px 0 0 0; font-size:13px; color:var(--text-muted);"></p>
+          </div>
+          <a id="massivas-download" href="#" download="massivas.kmz" class="run-btn" style="width:auto; padding:8px 20px; text-decoration:none;">
+            📥 Baixar KMZ
+          </a>
+        </div>
+
+        <!-- Structure Code Editor -->
+        <div style="margin-top:20px; border-top:1px solid var(--border); padding-top:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <label for="massivas-kml-code" style="font-weight:600; color:var(--neon-cyan); display:flex; align-items:center; gap:6px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+              Editar Estrutura em Código (KML / XML)
+            </label>
+            <span style="font-size:11px; color:var(--text-muted);">Você pode alterar as pastas e nós no código abaixo antes de baixar o KMZ</span>
+          </div>
+
+          <textarea id="massivas-kml-code" class="form-input" rows="12" style="font-family: var(--font-mono); font-size:12px; line-height:1.4; background:#0b0f19; color:#00f5ff; border:1px solid rgba(0,245,255,0.25);" placeholder="O código KML gerado aparecerá aqui. Você pode editá-lo antes de fazer o download..."></textarea>
+
+          <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+            <button class="run-btn" id="massivas-update-kml" style="width:auto; padding:6px 18px; font-size:13px; background:rgba(168,85,247,0.15); border-color:var(--neon-purple); color:var(--neon-purple);">
+              ⚡ Recriar KMZ com Código Editado
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    
+    <!-- ====== TAB 6: SISTEMA DE TOPOLOGIAS ====== -->
     <div class="tool-panel" id="panel-topologias">
       <div class="tool-card-header">
         <div class="tool-icon topologia-icon">
