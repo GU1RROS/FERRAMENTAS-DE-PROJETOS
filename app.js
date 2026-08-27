@@ -1961,8 +1961,8 @@ function initMassivasTool() {
       if (!Array.isArray(row)) continue;
       for (let c = 0; c < row.length; c++) {
         const val = String(row[c] || '').toLowerCase().trim();
-        if (val.includes('lat')) latIdx = c;
-        else if (val.includes('lon') || val.includes('lng') || val.includes('long')) lngIdx = c;
+        if (val.includes('lat') || val.includes('latitude')) latIdx = c;
+        else if (val.includes('lon') || val.includes('lng') || val.includes('long') || val.includes('longitude')) lngIdx = c;
         else if (val.includes('nome') || val.includes('name') || val.includes('ponto')) nameIdx = c;
       }
       if (latIdx !== -1 && lngIdx !== -1) break;
@@ -1972,8 +1972,28 @@ function initMassivasTool() {
 
     for (let r = startRow; r < rows.length; r++) {
       const row = rows[r];
-      if (!Array.isArray(row) || row.length < 2) continue;
+      if (!Array.isArray(row) || row.length === 0) continue;
 
+      // Check if any single cell in row contains both coordinates (DMS or decimal pair)
+      let foundPair = null;
+      for (let c = 0; c < row.length; c++) {
+        const cellText = String(row[c] || '').trim();
+        if (cellText.length >= 5) {
+          const pair = extractDmsOrDecimalPair(cellText);
+          if (pair) {
+            foundPair = pair;
+            break;
+          }
+        }
+      }
+
+      if (foundPair) {
+        const customName = (nameIdx !== -1 && row[nameIdx]) ? String(row[nameIdx]).trim() : null;
+        massivasParsedPoints.push({ lat: foundPair.lat, lng: foundPair.lng, customName });
+        continue;
+      }
+
+      // Separate columns parsing
       let lat = NaN, lng = NaN;
       if (latIdx !== -1 && lngIdx !== -1) {
         lat = parseCoordNumber(row[latIdx]);
@@ -2002,6 +2022,7 @@ function initMassivasTool() {
     }
 
     updateMassivasSummary();
+    addMassivasPointsToGisMap();
   }
 
   function parseMassivasTextarea() {
@@ -2011,30 +2032,143 @@ function initMassivasTool() {
       const trimmed = line.trim();
       if (!trimmed) return;
 
-      const matches = trimmed.match(/-?\d+(?:[.,]\d+)?/g);
-      if (matches && matches.length >= 2) {
-        const num1 = parseFloat(matches[0].replace(',', '.'));
-        const num2 = parseFloat(matches[1].replace(',', '.'));
-        if (!isNaN(num1) && !isNaN(num2)) {
-          let lat = num1, lng = num2;
-          if (Math.abs(lat) > 90 && Math.abs(lng) <= 90) {
-            lat = num2;
-            lng = num1;
-          }
-          if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-            massivasParsedPoints.push({ lat, lng });
-          }
-        }
+      const pt = extractDmsOrDecimalPair(trimmed);
+      if (pt) {
+        massivasParsedPoints.push(pt);
       }
     });
     updateMassivasSummary();
+    addMassivasPointsToGisMap();
+  }
+
+  function extractDmsOrDecimalPair(str) {
+    if (!str) return null;
+    const s = String(str).trim();
+    if (!s) return null;
+
+    // 1. DMS pairs with Cardinal Direction (e.g. 15°45'31.52"S 48°15'44.38"W)
+    const dmsWithDirRegex = /(\d+)\s*°?\s*(\d+)\s*['′]?\s*(\d+(?:[.,]\d+)?)\s*["″]?\s*([NSWEONsweo])/gi;
+    const matchesDir = Array.from(s.matchAll(dmsWithDirRegex));
+
+    if (matchesDir.length >= 2) {
+      let lat = NaN, lng = NaN;
+
+      matchesDir.forEach(m => {
+        const deg = parseFloat(m[1]);
+        const min = parseFloat(m[2]);
+        const sec = parseFloat(m[3].replace(',', '.'));
+        const dir = m[4].toUpperCase();
+
+        let dec = deg + (min / 60) + (sec / 3600);
+        if (dir === 'S' || dir === 'W' || dir === 'O') {
+          dec = -dec;
+        }
+
+        if (dir === 'S' || dir === 'N') {
+          lat = dec;
+        } else if (dir === 'W' || dir === 'O' || dir === 'E') {
+          lng = dec;
+        }
+      });
+
+      if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        return { lat, lng };
+      }
+    }
+
+    // 2. DMS pairs without direction tag (e.g. 15°45'31.52" 48°15'44.38")
+    const dmsNoDirRegex = /(\d+)\s*°\s*(\d+)\s*['′]\s*(\d+(?:[.,]\d+)?)\s*["″]?/gi;
+    const matchesNoDir = Array.from(s.matchAll(dmsNoDirRegex));
+    if (matchesNoDir.length >= 2) {
+      const dec1 = parseFloat(matchesNoDir[0][1]) + (parseFloat(matchesNoDir[0][2]) / 60) + (parseFloat(matchesNoDir[0][3].replace(',', '.')) / 3600);
+      const dec2 = parseFloat(matchesNoDir[1][1]) + (parseFloat(matchesNoDir[1][2]) / 60) + (parseFloat(matchesNoDir[1][3].replace(',', '.')) / 3600);
+
+      // In Brazil, both Lat and Lng are negative
+      let lat = -dec1;
+      let lng = -dec2;
+      if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        return { lat, lng };
+      }
+    }
+
+    // 3. Decimal pairs (e.g. -15.7942, -47.8821 or -15,7942 -47,8821)
+    const numMatches = s.match(/-?\d+(?:[.,]\d+)?/g);
+    if (numMatches && numMatches.length >= 2) {
+      const num1 = parseFloat(numMatches[0].replace(',', '.'));
+      const num2 = parseFloat(numMatches[1].replace(',', '.'));
+      if (!isNaN(num1) && !isNaN(num2)) {
+        let lat = num1, lng = num2;
+        if (Math.abs(lat) > 90 && Math.abs(lng) <= 90) {
+          lat = num2;
+          lng = num1;
+        }
+        if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          return { lat, lng };
+        }
+      }
+    }
+
+    return null;
   }
 
   function parseCoordNumber(val) {
     if (val === null || val === undefined) return NaN;
     if (typeof val === 'number') return val;
-    const str = String(val).trim().replace(',', '.');
-    return parseFloat(str);
+    const str = String(val).trim();
+    if (!str) return NaN;
+
+    // Check DMS format in single cell e.g. 15°45'31.52"S or 15°45'31.52" S
+    const dmsMatch = str.match(/(\d+)\s*°?\s*(\d+)\s*['′]?\s*(\d+(?:[.,]\d+)?)\s*["″]?\s*([NSWEONsweo])?/i);
+    if (dmsMatch && (str.includes('°') || str.includes("'") || str.includes('"') || dmsMatch[4])) {
+      const deg = parseFloat(dmsMatch[1]);
+      const min = parseFloat(dmsMatch[2]);
+      const sec = parseFloat(dmsMatch[3].replace(',', '.'));
+      const dir = dmsMatch[4] ? dmsMatch[4].toUpperCase() : '';
+
+      let dec = deg + (min / 60) + (sec / 3600);
+      if (dir === 'S' || dir === 'W' || dir === 'O') {
+        dec = -dec;
+      }
+      return dec;
+    }
+
+    const strClean = str.replace(',', '.');
+    return parseFloat(strClean);
+  }
+
+  function addMassivasPointsToGisMap() {
+    if (typeof gisMap === 'undefined' || !gisMap) return;
+    if (!massivasParsedPoints || massivasParsedPoints.length === 0) return;
+
+    const basePrefix = (prefixInput?.value?.trim() || 'PONTO').toUpperCase();
+
+    const features = massivasParsedPoints.map((pt, idx) => {
+      const pointNumStr = String(idx + 1).padStart(2, '0');
+      const name = `${basePrefix} - ${pointNumStr}`;
+      const latStr = pt.lat.toFixed(6);
+      const lngStr = pt.lng.toFixed(6);
+
+      return {
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: [pt.lng, pt.lat]
+        },
+        properties: {
+          NAME: name,
+          COORDENADAS: `${latStr}, ${lngStr}`,
+          LATITUDE: latStr,
+          LONGITUDE: lngStr
+        }
+      };
+    });
+
+    const geojson = {
+      type: 'FeatureCollection',
+      features: features
+    };
+
+    addGeoJsonLayer(geojson, 'massivas-parsed-layer', 'Pontos Massivas', '#39ff14', true);
   }
 
   function updateMassivasSummary() {
